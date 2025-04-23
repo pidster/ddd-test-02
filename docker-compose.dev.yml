@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  claim-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claim-service-dev
+    ports:
+      - "8080:8080"
+      - "8000:8000"  # For remote debugging if needed
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - JAVA_OPTS=-Xms256m -Xmx512m -XX:+UseContainerSupport -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:8000
+      - SPRING_DATASOURCE_URL=jdbc:h2:mem:claimdb
+      - SPRING_DATASOURCE_USERNAME=sa
+      - SPRING_DATASOURCE_PASSWORD=
+      - SPRING_H2_CONSOLE_ENABLED=true
+      - SPRING_H2_CONSOLE_SETTINGS_WEB_ALLOW_OTHERS=true
+    volumes:
+      - ./src:/app/src:ro  # Mount source code as read-only for live reload with dev tools
+      - ./target:/app/target  # Share target directory for dev-tools class reloading
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # Message Broker for development
+  rabbitmq-dev:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-dev
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - lakeside-dev-network
+
+  # H2 console viewer (optional web-based tool to view H2 database)
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: always
+    ports:
+      - "8081:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=claim-service-dev
+      - ADMINER_DESIGN=flat
+
+networks:
+  default:
+    name: lakeside-dev-network
+    driver: bridge

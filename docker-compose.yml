@@ -1,0 +1,211 @@
+version: '3.8'
+
+services:
+  # Service Discovery Server
+  discovery-server:
+    image: steeltoeoss/eureka-server:latest
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    environment:
+      - EUREKA_CLIENT_REGISTER-WITH-EUREKA=false
+      - EUREKA_CLIENT_FETCH-REGISTRY=false
+    networks:
+      - lakeside-net
+
+  # Config Server
+  config-server:
+    build:
+      context: ./config-server
+    container_name: config-server
+    ports:
+      - "8888:8888"
+    environment:
+      - SPRING_PROFILES_ACTIVE=native
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+    volumes:
+      - ./config-server/config:/config
+    depends_on:
+      - discovery-server
+    networks:
+      - lakeside-net
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "9000:9000"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
+    depends_on:
+      - discovery-server
+      - config-server
+    networks:
+      - lakeside-net
+
+  # Main Claim Processing Service
+  claim-service:
+    build:
+      context: .
+    container_name: claim-service
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://claim-db:5432/claimdb
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
+    depends_on:
+      - discovery-server
+      - config-server
+      - claim-db
+    networks:
+      - lakeside-net
+
+  # Policy Holder Service
+  policyholder-service:
+    build:
+      context: ./policyholder-service
+    container_name: policyholder-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://policyholder-db:5432/policyholderdb
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
+    depends_on:
+      - discovery-server
+      - config-server
+      - policyholder-db
+    networks:
+      - lakeside-net
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ./notification-service
+    container_name: notification-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://notification-db:5432/notificationdb
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
+      - SPRING_RABBITMQ_HOST=rabbitmq
+    depends_on:
+      - discovery-server
+      - config-server
+      - notification-db
+      - rabbitmq
+    networks:
+      - lakeside-net
+
+  # Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - lakeside-net
+
+  # Claim Database
+  claim-db:
+    image: postgres:14-alpine
+    container_name: claim-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=claimdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - claim-data:/var/lib/postgresql/data
+    networks:
+      - lakeside-net
+
+  # Policy Holder Database
+  policyholder-db:
+    image: postgres:14-alpine
+    container_name: policyholder-db
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=policyholderdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - policyholder-data:/var/lib/postgresql/data
+    networks:
+      - lakeside-net
+
+  # Notification Database
+  notification-db:
+    image: postgres:14-alpine
+    container_name: notification-db
+    ports:
+      - "5434:5432"
+    environment:
+      - POSTGRES_DB=notificationdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - notification-data:/var/lib/postgresql/data
+    networks:
+      - lakeside-net
+
+  # Monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - lakeside-net
+
+  # Visualization with Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - lakeside-net
+
+networks:
+  lakeside-net:
+    driver: bridge
+
+volumes:
+  claim-data:
+  policyholder-data:
+  notification-data:
+  grafana-data:
